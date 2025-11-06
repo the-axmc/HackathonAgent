@@ -20,6 +20,7 @@ Elias lives on **Telegram**, runs autonomously via **PM2**, and uses the **Groq 
 
 ## 📁 Project Structure
 
+```bash
 eliza-starter/
 │
 ├── src/
@@ -38,6 +39,7 @@ eliza-starter/
 ├── package.json
 ├── tsconfig.json
 └── README.md
+```
 
 ---
 
