@@ -23,17 +23,11 @@ Elias lives on **Telegram**, runs autonomously via **PM2**, and uses the **Groq 
 eliza-starter/
 │
 ├── src/
-
 │ ├── index.ts # Main entry point (agent startup)
-
 │ ├── chat/ # CLI and Telegram message handling
-
 │ ├── clients/ # Telegram client integration
-
 │ ├── cache/ # Persistent memory and cache
-
 │ ├── config/ # Character + runtime configuration
-
 │ ├── database/ # SQLite adapter
 │ └── character.ts # Character definitions
 │
