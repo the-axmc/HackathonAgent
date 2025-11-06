@@ -21,9 +21,7 @@ Elias lives on **Telegram**, runs autonomously via **PM2**, and uses the **Groq 
 ## 📁 Project Structure
 
 eliza-starter/
-
 │
-
 ├── src/
 
 │ ├── index.ts # Main entry point (agent startup)
@@ -37,23 +35,14 @@ eliza-starter/
 │ ├── config/ # Character + runtime configuration
 
 │ ├── database/ # SQLite adapter
-
 │ └── character.ts # Character definitions
-
 │
-
 ├── characters/
-
 │ └── eliasnova.character.json # Personality file for Elias
-
 │
-
 ├── .env # API keys and environment variables
-
 ├── package.json
-
 ├── tsconfig.json
-
 └── README.md
 
 ---
