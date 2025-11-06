@@ -1,94 +1,63 @@
-# Eliza
+# 🤖 Elias Nova — The Hackathon Catalyst Agent
 
-## Edit the character files
+**Elias Nova** is an AI-driven agent built on the [Eliza Framework](https://github.com/elizaOS/eliza-starter).  
+He’s designed to act as a **Hackathon Lead**, supporting organizers, developers, and sponsors during events — ensuring logistics run smoothly and participants stay motivated.
 
-Open `src/character.ts` to modify the default character. Uncomment and edit.
+Elias lives on **Telegram**, runs autonomously via **PM2**, and uses the **Groq LLaMA 3.3 (70B)** model for fast, reliable reasoning.
 
-### Custom characters
+---
 
-To load custom characters instead:
-- Use `pnpm start --characters="path/to/your/character.json"`
-- Multiple character files can be loaded simultaneously
+## 🚀 Features
 
-### Add clients
-```
-# in character.ts
-clients: [Clients.TWITTER, Clients.DISCORD],
+- 🧠 Built with **ElizaOS Agent Framework**
+- 💬 Integrated with **Telegram Bot API**
+- ⚙️ Powered by **Groq LLaMA 3.3 (70B Versatile)**
+- 🪄 Memory & context via SQLite cache
+- 🔄 Auto-restarts & persists using **PM2**
+- 🌍 Easily deployable on **Render**, **Railway**, or any VPS
 
-# in character.json
-clients: ["twitter", "discord"]
-```
+---
 
-## Duplicate the .env.example template
+## 📁 Project Structure
 
-```bash
-cp .env.example .env
-```
+eliza-starter/
+│
+├── src/
+│ ├── index.ts # Main entry point (agent startup)
+│ ├── chat/ # CLI and Telegram message handling
+│ ├── clients/ # Telegram client integration
+│ ├── cache/ # Persistent memory and cache
+│ ├── config/ # Character + runtime configuration
+│ ├── database/ # SQLite adapter
+│ └── character.ts # Character definitions
+│
+├── characters/
+│ └── eliasnova.character.json # Personality file for Elias
+│
+├── .env # API keys and environment variables
+├── package.json
+├── tsconfig.json
+└── README.md
 
-\* Fill out the .env file with your own values.
+---
 
-### Add login credentials and keys to .env
-```
-DISCORD_APPLICATION_ID="discord-application-id"
-DISCORD_API_TOKEN="discord-api-token"
-...
-OPENROUTER_API_KEY="sk-xx-xx-xxx"
-...
-TWITTER_USERNAME="username"
-TWITTER_PASSWORD="password"
-TWITTER_EMAIL="your@email.com"
-```
+## ⚙️ Environment Setup
 
-## Install dependencies and start your agent
-
-```bash
-pnpm i && pnpm start
-```
-Note: this requires node to be at least version 22 when you install packages and run the agent.
-
-## Run with Docker
-
-### Build and run Docker Compose (For x86_64 architecture)
-
-#### Edit the docker-compose.yaml file with your environment variables
-
-```yaml
-services:
-    eliza:
-        environment:
-            - OPENROUTER_API_KEY=blahdeeblahblahblah
-```
-
-#### Run the image
+Create a `.env` file in your project root:
 
 ```bash
-docker compose up
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
+GROQ_API_KEY=your_groq_api_key_here
+GROQ_MODEL=llama-3.3-70b-versatile
 ```
 
-### Build the image with Mac M-Series or aarch64
+> 🧩 You can create a Telegram bot using @BotFather
 
-Make sure docker is running.
+## Troubleshooting
 
-```bash
-# The --load flag ensures the built image is available locally
-docker buildx build --platform linux/amd64 -t eliza-starter:v1 --load .
-```
-
-#### Edit the docker-compose-image.yaml file with your environment variables
-
-```yaml
-services:
-    eliza:
-        environment:
-            - OPENROUTER_API_KEY=blahdeeblahblahblah
-```
-
-#### Run the image
-
-```bash
-docker compose -f docker-compose-image.yaml up
-```
-
-# Deploy with Railway
-
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/template/aW47_j)
+| Issue                   | Fix                                                           |
+| ----------------------- | ------------------------------------------------------------- |
+| `FetchError: ETIMEDOUT` | Check internet connection or Telegram API availability        |
+| `model_decommissioned`  | Update `.env` to use a valid model: `llama-3.3-70b-versatile` |
+| Bot doesn’t reply       | Ensure `.env` is loaded and tokens are valid                  |
+| Multiple PM2 instances  | Run `pm2 delete all` and restart one clean instance           |

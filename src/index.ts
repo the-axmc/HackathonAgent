@@ -1,3 +1,27 @@
+// Load .env
+import "dotenv/config";
+// 🧠 Global Fetch Patch — before Eliza loads anything
+const groqModel = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+(globalThis as any).LLAMA_DEFAULT_MODEL = groqModel;
+
+const originalFetch = globalThis.fetch;
+globalThis.fetch = async (url, options) => {
+  if (
+    typeof url === "string" &&
+    url.includes("api.groq.com/openai/v1/chat/completions")
+  ) {
+    try {
+      const body = JSON.parse(options?.body || "{}");
+      if (body.model && body.model !== groqModel) {
+        body.model = groqModel;
+        options.body = JSON.stringify(body);
+        console.log("🔧 Forced Groq model globally to:", groqModel);
+      }
+    } catch {}
+  }
+  return originalFetch(url, options);
+};
+
 import { DirectClient } from "@elizaos/client-direct";
 import {
   AgentRuntime,
@@ -24,30 +48,61 @@ import {
 } from "./config/index.ts";
 import { initializeDatabase } from "./database/index.ts";
 
+/* -------------------------------------------------------------------------- */
+/* 📁 Paths & Helpers                                                         */
+/* -------------------------------------------------------------------------- */
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export const wait = (minTime: number = 1000, maxTime: number = 3000) => {
-  const waitTime =
-    Math.floor(Math.random() * (maxTime - minTime + 1)) + minTime;
-  return new Promise((resolve) => setTimeout(resolve, waitTime));
+export const wait = (minTime = 1000, maxTime = 3000) =>
+  new Promise((resolve) =>
+    setTimeout(
+      resolve,
+      Math.floor(Math.random() * (maxTime - minTime + 1)) + minTime
+    )
+  );
+
+/* -------------------------------------------------------------------------- */
+/* 🧩 Logger Patch                                                            */
+/* -------------------------------------------------------------------------- */
+const logger = {
+  ...elizaLogger,
+  log: (...args: unknown[]) =>
+    (elizaLogger as any).info(args.map(String).join(" ")),
+  success: (...args: unknown[]) =>
+    (elizaLogger as any).info(args.map(String).join(" ")),
+  error: (...args: unknown[]) =>
+    (elizaLogger as any).error(args.map(String).join(" ")),
+  warn: (...args: unknown[]) =>
+    (elizaLogger as any).warn(args.map(String).join(" ")),
+  debug: (...args: unknown[]) =>
+    (elizaLogger as any).debug(args.map(String).join(" ")),
 };
+
+/* -------------------------------------------------------------------------- */
+/* 🧠 Force Groq Model                                                        */
+/* -------------------------------------------------------------------------- */
+const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+process.env.GROQ_MODEL = GROQ_MODEL;
+process.env.GROQ_API_MODEL = GROQ_MODEL;
+(globalThis as any).LLAMA_DEFAULT_MODEL = GROQ_MODEL;
 
 let nodePlugin: any | undefined;
 
+/* -------------------------------------------------------------------------- */
+/* 🧩 Create AgentRuntime                                                     */
+/* -------------------------------------------------------------------------- */
 export function createAgent(
   character: Character,
   db: any,
   cache: any,
   token: string
 ) {
-  elizaLogger.success(
-    elizaLogger.successesTitle,
-    "Creating runtime for character",
-    character.name,
-  );
+  logger.success("Creating runtime for character", character.name);
 
   nodePlugin ??= createNodePlugin();
+  if (!character.settings) character.settings = {};
+  character.settings.model = GROQ_MODEL;
 
   return new AgentRuntime({
     databaseAdapter: db,
@@ -68,63 +123,78 @@ export function createAgent(
   });
 }
 
+/* -------------------------------------------------------------------------- */
+/* 🚀 Start One Agent Runtime                                                 */
+/* -------------------------------------------------------------------------- */
 async function startAgent(character: Character, directClient: DirectClient) {
   try {
     character.id ??= stringToUuid(character.name);
     character.username ??= character.name;
+    character.settings = { ...character.settings, model: GROQ_MODEL };
 
     const token = getTokenForProvider(character.modelProvider, character);
     const dataDir = path.join(__dirname, "../data");
-
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
-    }
+    if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
     const db = initializeDatabase(dataDir);
-
     await db.init();
 
     const cache = initializeDbCache(character, db);
     const runtime = createAgent(character, db, cache, token);
 
+    /* ---------------------------------------------------------------------- */
+    /* 🧠 Final Groq Model Enforcement (Fetch Intercept)                      */
+    /* ---------------------------------------------------------------------- */
+    const groqModel = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+    (globalThis as any).LLAMA_DEFAULT_MODEL = groqModel;
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url, options) => {
+      if (
+        typeof url === "string" &&
+        url.includes("api.groq.com/openai/v1/chat/completions")
+      ) {
+        try {
+          const body = JSON.parse(options.body);
+          if (body && body.model && body.model !== groqModel) {
+            body.model = groqModel;
+            options.body = JSON.stringify(body);
+            console.log("🔧 Forced Groq model to:", groqModel);
+          }
+        } catch (err) {
+          console.warn("⚠️ Could not patch Groq body:", err);
+        }
+      }
+      return originalFetch(url, options);
+    };
+
     await runtime.initialize();
-
     runtime.clients = await initializeClients(character, runtime);
-
     directClient.registerAgent(runtime);
 
-    // report to console
-    elizaLogger.debug(`Started ${character.name} as ${runtime.agentId}`);
-
+    logger.success(`✅ Started ${character.name} using model ${groqModel}`);
     return runtime;
   } catch (error) {
-    elizaLogger.error(
-      `Error starting agent for character ${character.name}:`,
-      error,
-    );
-    console.error(error);
+    logger.error("Unhandled error in startAgent:", error);
     throw error;
   }
 }
 
-const checkPortAvailable = (port: number): Promise<boolean> => {
-  return new Promise((resolve) => {
+/* -------------------------------------------------------------------------- */
+/* ⚙️ Start All Agents                                                        */
+/* -------------------------------------------------------------------------- */
+const checkPortAvailable = (port: number): Promise<boolean> =>
+  new Promise((resolve) => {
     const server = net.createServer();
-
     server.once("error", (err: NodeJS.ErrnoException) => {
-      if (err.code === "EADDRINUSE") {
-        resolve(false);
-      }
+      if (err.code === "EADDRINUSE") resolve(false);
     });
-
     server.once("listening", () => {
       server.close();
       resolve(true);
     });
-
     server.listen(port);
   });
-};
 
 const startAgents = async () => {
   const directClient = new DirectClient();
@@ -134,45 +204,43 @@ const startAgents = async () => {
   let charactersArg = args.characters || args.character;
   let characters = [character];
 
-  console.log("charactersArg", charactersArg);
   if (charactersArg) {
     characters = await loadCharacters(charactersArg);
   }
-  console.log("characters", characters);
+
   try {
-    for (const character of characters) {
-      await startAgent(character, directClient as DirectClient);
+    for (const ch of characters) {
+      await startAgent(ch, directClient);
     }
   } catch (error) {
-    elizaLogger.error("Error starting agents:", error);
+    logger.error("Error starting agents:", error);
   }
 
   while (!(await checkPortAvailable(serverPort))) {
-    elizaLogger.warn(`Port ${serverPort} is in use, trying ${serverPort + 1}`);
+    logger.warn(`Port ${serverPort} is in use, trying ${serverPort + 1}`);
     serverPort++;
   }
 
-  // upload some agent functionality into directClient
-  directClient.startAgent = async (character: Character) => {
-    // wrap it so we don't have to inject directClient later
-    return startAgent(character, directClient);
-  };
-
+  directClient.startAgent = async (ch: Character) =>
+    startAgent(ch, directClient);
   directClient.start(serverPort);
 
   if (serverPort !== parseInt(settings.SERVER_PORT || "3000")) {
-    elizaLogger.log(`Server started on alternate port ${serverPort}`);
+    logger.log(`Server started on alternate port ${serverPort}`);
   }
 
   const isDaemonProcess = process.env.DAEMON_PROCESS === "true";
-  if(!isDaemonProcess) {
-    elizaLogger.log("Chat started. Type 'exit' to quit.");
+  if (!isDaemonProcess) {
+    logger.log("💬 Chat started. Type 'exit' to quit.");
     const chat = startChat(characters);
     chat();
   }
 };
 
+/* -------------------------------------------------------------------------- */
+/* 🧩 Run Everything                                                          */
+/* -------------------------------------------------------------------------- */
 startAgents().catch((error) => {
-  elizaLogger.error("Unhandled error in startAgents:", error);
+  logger.error("Unhandled error in startAgents:", error);
   process.exit(1);
 });
