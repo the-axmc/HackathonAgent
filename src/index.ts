@@ -186,8 +186,8 @@ async function startAgent(character: Character, directClient: DirectClient) {
   for (const ch of characters) await startAgent(ch, directClient);
 
   // 🌐 Start Express server for Telegram webhook
-  const PORT = parseInt(process.env.SERVER_PORT || "3000", 10);
+  const PORT = parseInt(process.env.PORT || process.env.SERVER_PORT || "3000", 10);
   app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
-  });
+  console.log(`🚀 Server running on port ${PORT}`);
+});
 })();
