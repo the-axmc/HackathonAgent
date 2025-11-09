@@ -238,11 +238,16 @@ const startAgents = async () => {
     logger.log(`Server started on alternate port ${serverPort}`);
   }
 
+  // Disable interactive chat when deployed to cloud (Render has no stdin)
   const isDaemonProcess = process.env.DAEMON_PROCESS === "true";
-  if (!isDaemonProcess) {
+  const isRender = !!process.env.RENDER; // Render automatically sets RENDER=true
+
+  if (!isDaemonProcess && !isRender) {
     logger.log("💬 Chat started. Type 'exit' to quit.");
     const chat = startChat(characters);
     chat();
+  } else {
+    logger.log("🌐 Running in non-interactive mode (Render detected).");
   }
 };
 
