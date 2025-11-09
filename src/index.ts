@@ -1,11 +1,36 @@
 // ---------------------------------------------------------------------------
-// 🌍 Load .env reliably
+// 🌍 Load environment
 // ---------------------------------------------------------------------------
 import dotenv from "dotenv";
 import path from "path";
 dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 
-// 🧠 Global Fetch Patch — ensure Groq model is never overridden
+// ---------------------------------------------------------------------------
+// 🤖 Telegram Webhook Setup for Render
+// ---------------------------------------------------------------------------
+import express from "express";
+import { Telegraf } from "telegraf";
+
+const app = express();
+const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN!);
+
+// Webhook endpoint (Render external URL required)
+const webhookPath = "/elias";
+const webhookUrl = `${process.env.RENDER_EXTERNAL_URL}${webhookPath}`;
+
+app.use(bot.webhookCallback(webhookPath));
+
+bot.telegram.setWebhook(webhookUrl);
+console.log(`🌐 Telegram webhook set to ${webhookUrl}`);
+
+// Simple route to verify Render service
+app.get("/", (_, res) => {
+  res.send("✅ Elias Nova Webhook is running.");
+});
+
+// ---------------------------------------------------------------------------
+// 🧠 Force Groq model globally
+// ---------------------------------------------------------------------------
 const groqModel = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
 (globalThis as any).LLAMA_DEFAULT_MODEL = groqModel;
 
@@ -28,7 +53,7 @@ globalThis.fetch = async (url, options) => {
 };
 
 // ---------------------------------------------------------------------------
-// 📦 Imports
+// 🧩 Eliza Runtime Imports
 // ---------------------------------------------------------------------------
 import { DirectClient } from "@elizaos/client-direct";
 import {
@@ -56,20 +81,6 @@ import {
 import { initializeDatabase } from "./database/index.ts";
 
 // ---------------------------------------------------------------------------
-// 🧩 Paths & Helpers
-// ---------------------------------------------------------------------------
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-export const wait = (minTime = 1000, maxTime = 3000) =>
-  new Promise((resolve) =>
-    setTimeout(
-      resolve,
-      Math.floor(Math.random() * (maxTime - minTime + 1)) + minTime
-    )
-  );
-
-// ---------------------------------------------------------------------------
 // 🧾 Logger Patch
 // ---------------------------------------------------------------------------
 const logger = {
@@ -87,54 +98,31 @@ const logger = {
 };
 
 // ---------------------------------------------------------------------------
-// 🧠 Force Groq Model (Env Sync)
-// ---------------------------------------------------------------------------
-const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
-process.env.GROQ_MODEL = GROQ_MODEL;
-process.env.GROQ_API_MODEL = GROQ_MODEL;
-(globalThis as any).LLAMA_DEFAULT_MODEL = GROQ_MODEL;
-
-// ---------------------------------------------------------------------------
 // 🧩 Helper — Replace $VARS in character JSON with .env values
 // ---------------------------------------------------------------------------
 function resolveEnvPlaceholders(obj: any): any {
   if (typeof obj === "string") {
     const match = obj.match(/^\$(\w+)$/);
-    if (match) {
-      const envValue = process.env[match[1]];
-      if (!envValue)
-        console.warn(`⚠️ Missing environment variable for ${match[1]}`);
-      return envValue || obj;
-    }
+    if (match) return process.env[match[1]] || obj;
     return obj;
   }
   if (Array.isArray(obj)) return obj.map(resolveEnvPlaceholders);
   if (typeof obj === "object" && obj !== null) {
     const newObj: any = {};
-    for (const [k, v] of Object.entries(obj)) {
+    for (const [k, v] of Object.entries(obj))
       newObj[k] = resolveEnvPlaceholders(v);
-    }
     return newObj;
   }
   return obj;
 }
 
 // ---------------------------------------------------------------------------
-// ⚙️ Create AgentRuntime
+// 🧠 Create AgentRuntime
 // ---------------------------------------------------------------------------
 let nodePlugin: any | undefined;
-
-export function createAgent(
-  character: Character,
-  db: any,
-  cache: any,
-  token: string
-) {
+function createAgent(character: Character, db: any, cache: any, token: string) {
   logger.success("Creating runtime for character", character.name);
-
   nodePlugin ??= createNodePlugin();
-  if (!character.settings) character.settings = {};
-  character.settings.model = GROQ_MODEL;
 
   return new AgentRuntime({
     databaseAdapter: db,
@@ -142,11 +130,7 @@ export function createAgent(
     modelProvider: character.modelProvider,
     evaluators: [],
     character,
-    plugins: [
-      bootstrapPlugin,
-      nodePlugin,
-      character.settings?.secrets?.WALLET_PUBLIC_KEY ? solanaPlugin : null,
-    ].filter(Boolean),
+    plugins: [bootstrapPlugin, nodePlugin, solanaPlugin].filter(Boolean),
     providers: [],
     actions: [],
     services: [],
@@ -156,30 +140,30 @@ export function createAgent(
 }
 
 // ---------------------------------------------------------------------------
-// 🚀 Start One Agent Runtime
+// 🚀 Start One Agent
 // ---------------------------------------------------------------------------
 async function startAgent(character: Character, directClient: DirectClient) {
   try {
     character = resolveEnvPlaceholders(character);
     character.id ??= stringToUuid(character.name);
     character.username ??= character.name;
-    character.settings = { ...character.settings, model: GROQ_MODEL };
 
     const token = getTokenForProvider(character.modelProvider, character);
-    const dataDir = path.join(__dirname, "../data");
+    const dataDir = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../data"
+    );
     if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
     const db = initializeDatabase(dataDir);
     await db.init();
-
     const cache = initializeDbCache(character, db);
     const runtime = createAgent(character, db, cache, token);
-
     await runtime.initialize();
     runtime.clients = await initializeClients(character, runtime);
     directClient.registerAgent(runtime);
 
-    logger.success(`✅ Started ${character.name} using model ${GROQ_MODEL}`);
+    logger.success(`✅ Started ${character.name} using model ${groqModel}`);
     return runtime;
   } catch (error) {
     logger.error("Unhandled error in startAgent:", error);
@@ -188,73 +172,22 @@ async function startAgent(character: Character, directClient: DirectClient) {
 }
 
 // ---------------------------------------------------------------------------
-// ⚙️ Start All Agents
+// 🧩 Start All Agents + Webhook Server
 // ---------------------------------------------------------------------------
-const checkPortAvailable = (port: number): Promise<boolean> =>
-  new Promise((resolve) => {
-    const server = net.createServer();
-    server.once("error", (err: NodeJS.ErrnoException) => {
-      if (err.code === "EADDRINUSE") resolve(false);
-    });
-    server.once("listening", () => {
-      server.close();
-      resolve(true);
-    });
-    server.listen(port);
-  });
-
-const startAgents = async () => {
+(async () => {
   const directClient = new DirectClient();
-  let serverPort = parseInt(settings.SERVER_PORT || "3000");
   const args = parseArguments();
-
   let charactersArg = args.characters || args.character;
   let characters = [character];
 
-  if (charactersArg) {
-    characters = await loadCharacters(charactersArg);
-  }
+  if (charactersArg) characters = await loadCharacters(charactersArg);
+  characters = characters.map(resolveEnvPlaceholders);
 
-  characters = characters.map((ch) => resolveEnvPlaceholders(ch));
+  for (const ch of characters) await startAgent(ch, directClient);
 
-  try {
-    for (const ch of characters) {
-      await startAgent(ch, directClient);
-    }
-  } catch (error) {
-    logger.error("Error starting agents:", error);
-  }
-
-  while (!(await checkPortAvailable(serverPort))) {
-    logger.warn(`Port ${serverPort} is in use, trying ${serverPort + 1}`);
-    serverPort++;
-  }
-
-  directClient.startAgent = async (ch: Character) =>
-    startAgent(ch, directClient);
-  directClient.start(serverPort);
-
-  if (serverPort !== parseInt(settings.SERVER_PORT || "3000")) {
-    logger.log(`Server started on alternate port ${serverPort}`);
-  }
-
-  // Disable interactive chat when deployed to cloud (Render has no stdin)
-  const isDaemonProcess = process.env.DAEMON_PROCESS === "true";
-  const isRender = !!process.env.RENDER; // Render automatically sets RENDER=true
-
-  if (!isDaemonProcess && !isRender) {
-    logger.log("💬 Chat started. Type 'exit' to quit.");
-    const chat = startChat(characters);
-    chat();
-  } else {
-    logger.log("🌐 Running in non-interactive mode (Render detected).");
-  }
-};
-
-// ---------------------------------------------------------------------------
-// 🧩 Run Everything
-// ---------------------------------------------------------------------------
-startAgents().catch((error) => {
-  logger.error("Unhandled error in startAgents:", error);
-  process.exit(1);
-});
+  // 🌐 Start Express server for Telegram webhook
+  const PORT = parseInt(process.env.SERVER_PORT || "3000", 10);
+  app.listen(PORT, () => {
+    console.log(`🚀 Server running on port ${PORT}`);
+  });
+})();
